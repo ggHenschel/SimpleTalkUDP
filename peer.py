@@ -29,6 +29,15 @@ class Client:
             self.sock_in = socket.socket(socket.AF_INET,  # Internet
                              socket.SOCK_DGRAM)  # UDP
             self.sock_in.bind(('',client_port))
+            self.sock_multi = socket.socket(socket.AF_INET,  # Internet
+                             socket.SOCK_DGRAM,
+                             socket.IPPROTO_IP)
+            try:
+                self.sock_multi.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            except AttributeError:
+                pass
+            self.sock_multi.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 32)
+            self.sock_multi.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_LOOP, 1)
         except Exception as e:
             print(e)
             quit(-1)
@@ -50,9 +59,17 @@ class Client:
                 print("Welcome!")
                 self.multicastgroup, self.multicastport = d_data
                 self.m_connected = True
-                self.group = self.sock_in.inet_aton(self.multicastgroup)
+                self.group = socket.inet_aton(self.multicastgroup)
                 self.mreq = struct.pack('4sL',self.group,socket.INADDR_ANY)
-                self.sock_in.setsockopt(socket.IPPROTO_IP,socket.IP_ADD_MEMBERSHIP,self.mreq)
+                self.sock_multi.bind((self.multicastgroup,self.multicastport))
+                try:
+                    host = socket.gethostbyname(socket.gethostname())
+                except:
+                    host = '192.168.3.1'
+                print(host)
+                self.sock_multi.setsockopt(socket.SOL_IP, socket.IP_MULTICAST_IF, socket.inet_aton(host))
+                self.sock_multi.setsockopt(socket.SOL_IP, socket.IP_ADD_MEMBERSHIP,
+                                socket.inet_aton(self.multicastgroup) + socket.inet_aton(host))
                 break
             elif code == UNAUTHORIZED:
                 print("Access Denied. Wrong User/Password")
@@ -64,6 +81,8 @@ class Client:
         if self.m_connected:
             listener = th.Thread(target=self.client_listener)
             listener.start()
+            listener_m = th.Thread(target=self.multicast_listener)
+            listener_m.start()
             #start
             print("Type command /c to message all, /list to request ips, /m IP:PORT message to message someone, /quit to leave server")
 
@@ -80,7 +99,6 @@ class Client:
                 ip = self.server_ip
                 port = self.server_port
                 msg_to_send = True
-                self.barreira.release()
             elif s1 == '/list':
                 code = REQUEST_LIST
                 data = ''
@@ -121,6 +139,20 @@ class Client:
         finally:
             self.sock_out.close()
 
+    def multicast_listener(self):
+        try:
+            while self.m_connected:
+                data, addr = self.sock_multi.recvfrom(1024)  # buffer size is 1024 bytes
+                code, d_data = pickle.loads(data)
+                if code == MESSAGE_ALL:
+                    print(d_data)
+                else:
+                    print("unkown code received from multicast port")
+        except KeyboardInterrupt:
+            pass
+        finally:
+            self.sock_multi.close()
+
     def client_listener(self):
         try:
             while self.m_connected:
@@ -128,9 +160,6 @@ class Client:
                 code, d_data = pickle.loads(data)
                 if code == MESSAGE_SINGLE:
                     print("[p]",addr[0],":",d_data)
-                elif code == MESSAGE_ALL:
-                    sender_ip, message = d_data
-                    print(sender_ip,":",message)
                 elif code == LIST_SENT:
                     print(d_data)
                 elif code == DISCONNECT_MESSAGE:
@@ -150,7 +179,7 @@ class Client:
 
 
 #Hard Coded
-UDP_IP = "127.0.0.1"
+UDP_IP = "192.168.3.241"
 UDP_PORT = 5005
 
 
