@@ -2,6 +2,7 @@ import argparse
 import json
 import pickle
 import threading
+import struct
 
 #DEFINES
 CONNECT_REQUEST = "1"
@@ -21,10 +22,14 @@ class Supernode:
     def __init__(self,UDP_IP,UDP_PORT,data='data'):
         import socket
 
+        ttl = struct.pack('b',1)
+        self.multicastgroup = ("224.6.6.61",5006)
+
         self.m_sock = socket.socket(socket.AF_INET,  # Internet
                              socket.SOCK_DGRAM)  # UDP
         try:
             self.m_sock.bind((UDP_IP, UDP_PORT))
+            self.m_sock.setsockopt(socket.IPPROTO_IP,socket.IP_MULTICAST_TTL,ttl)
         except:
             print("Failed To Bind to port",UDP_PORT,"... Shuting Down")
             quit(-1)
@@ -51,13 +56,24 @@ class Supernode:
 
     def check_client(self,client,password,ip,port):
         if client in self.registred and self.registred[client] == password:
+            if self.check_if_connected(client):
+                self.m_sock.sendto(pickle.dumps((UNAUTHORIZED, '')), (ip, port))
+                return False
+
             self.connected_ips[ip]=(client,port)
-            self.m_sock.sendto(pickle.dumps((OK,'')),(ip,port))
+            self.m_sock.sendto(pickle.dumps((OK,self.multicastgroup),(ip,port)))
             #DO MULTICAST
             return True
         else:
             self.m_sock.sendto(pickle.dumps((UNAUTHORIZED, '')),(ip,port))
             return False
+
+    def check_if_connected(self,client):
+        for _,(i_client,_) in self.connected_ips.items():
+            if i_client == client:
+                return True
+
+        return False
 
     def send_forbiden(self,ip):
         port = self.connected_ips[ip][1]
@@ -78,6 +94,7 @@ class Supernode:
 
     def multicast_message(self,ip,message):
         client = self.connected_ips[ip][0]
+        self.m_sock.sendto(pickle.dumps((MESSAGE_ALL,message)),self.multicastgroup)
         print("From",client,"(",ip,"):",message)
 
 class Handler:

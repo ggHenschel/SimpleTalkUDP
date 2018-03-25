@@ -1,6 +1,7 @@
 import socket, pickle
 import getpass
 import threading as th
+import struct
 
 #DEFINES
 CONNECT_REQUEST = "1"
@@ -47,7 +48,11 @@ class Client:
             code, d_data = pickle.loads(data)
             if code == OK:
                 print("Welcome!")
+                self.multicastgroup, self.multicastport = d_data
                 self.m_connected = True
+                self.group = self.sock_in.inet_aton(self.multicastgroup)
+                self.mreq = struct.pack('4sL',self.group,socket.INADDR_ANY)
+                self.sock_in.setsockopt(socket.IPPROTO_IP,socket.IP_ADD_MEMBERSHIP,self.mreq)
                 break
             elif code == UNAUTHORIZED:
                 print("Access Denied. Wrong User/Password")
@@ -56,10 +61,12 @@ class Client:
                 print("Unknown Error. Please Try Again")
 
         #start listening
-        listener = th.Thread(target=self.client_listener)
-        listener.start()
-        #start
-        print("Type command /c to message all, /list to request ips, /m IP:PORT message to message someone, /quit to leave server")
+        if self.m_connected:
+            listener = th.Thread(target=self.client_listener)
+            listener.start()
+            #start
+            print("Type command /c to message all, /list to request ips, /m IP:PORT message to message someone, /quit to leave server")
+
         while self.m_connected:
             console = input()
             try:
